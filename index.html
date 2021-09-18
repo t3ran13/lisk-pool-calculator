@@ -9,6 +9,8 @@
             loadPoolInfo();
         });
 
+        var rewards = {};
+
         function getDataFromNode(relativeUrl, callback)
         {
             var url = document.getElementById("node-url").value + '/' + relativeUrl;
@@ -64,7 +66,7 @@
                         console.log('getPoolVotes', data);
 
                         document.getElementById("info-pool-voters-number").textContent = data.data.account.votesReceived;
-
+                        showVoters(data.data.votes);
                     });
                 }
             );
@@ -83,7 +85,7 @@
                 var blocksPerDay = 3600 * 24 / 10;
                 var poolBlocksPerDay = blocksPerDay / 103;
 
-                var rewards = calcultePoolRewardPerPeriods(poolBlocksPerDay);
+                rewards = calcultePoolRewardPerPeriods(poolBlocksPerDay);
                 fillRewards("info-pool-mined-profit", rewards.mined);
                 fillRewards("info-pool-shared-profit", rewards.shared);
                 fillRewards("info-pool-profit-per-1000", rewards.per1000);
@@ -116,10 +118,52 @@
         }
 
         function fillRewards(id, rewardsObj) {
-            document.getElementById(id).textContent
-                = parseFloat(rewardsObj.inDay).toFixed(2)
+            document.getElementById(id).textContent = glueRewards(rewardsObj);
+        }
+
+        function glueRewards(rewardsObj) {
+            return parseFloat(rewardsObj.inDay).toFixed(2)
                 + ' / ' + parseFloat(rewardsObj.inWeek).toFixed(2)
-                + ' / ' + parseFloat(rewardsObj.inMonth).toFixed(2) ;
+                + ' / ' + parseFloat(rewardsObj.inMonth).toFixed(2);
+        }
+
+        function showVoters(voters) {
+            document.getElementById('info-pool-voters-list').textContent = '';
+            for(var voter of voters){
+                let divAddress = document.createElement("div");
+                let spanAddress = document.createElement("span");
+                spanAddress.append(voter.address);
+                divAddress.append("Address: ", spanAddress);
+
+                let divAmount = document.createElement("div");
+                let spanAmount = document.createElement("span");
+                spanAmount.append(voter.amount.slice(0,-8));
+                divAmount.append("Amount: ", spanAmount);
+
+                let divProfit = document.createElement("div");
+                var weight = voter.amount.slice(0,-8);
+                var profit = {
+                    inDay: weight * rewards.per1000.inDay / 1000,
+                    inWeek: weight * rewards.per1000.inWeek / 1000,
+                    inMonth: weight * rewards.per1000.inMonth / 1000,
+                };
+                let spanProfit = document.createElement("span");
+                spanProfit.append(glueRewards(profit));
+                divProfit.append("Profit will be get in day/week/month: ", spanProfit);
+
+                let div = document.createElement("div");
+                div.style.border = "1px solid green";
+                div.style.borderRadius = "6px";
+                div.style.margin = "1px 0";
+                div.style.padding = "5px";
+                div.append(
+                    divAddress,
+                    divAmount,
+                    divProfit
+                );
+
+                document.getElementById('info-pool-voters-list').append(div);
+            }
         }
     </script>
 
@@ -160,15 +204,15 @@
                         <td><span id="info-pool-votes-received"></span></td>
                     </tr>
                     <tr>
-                        <td>Total Lisk mined in a day/week/month: </td>
+                        <td>Total Lisk will be  mined in a day/week/month: </td>
                         <td><span id="info-pool-mined-profit"></span></td>
                     </tr>
                     <tr>
-                        <td>Total Lisk shared in a day/week/month: </td>
+                        <td>Total Lisk will be  shared in a day/week/month: </td>
                         <td><span id="info-pool-shared-profit"></span></td>
                     </tr>
                     <tr>
-                        <td>Profit per 1000 Lisk vote in a day/week/month: </td>
+                        <td>Profit will be get per 1000 Lisk vote in a day/week/month: </td>
                         <td><span id="info-pool-profit-per-1000"></span></td>
                     </tr>
                     <tr>
