@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Lisk pool calculator</title>
+    </head>
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            loadPoolInfo();
+        });
+
+        function getDataFromNode(relativeUrl, callback)
+        {
+            var url = document.getElementById("node-url").value + '/' + relativeUrl;
+            var xmlHttp = new XMLHttpRequest();
+            xmlHttp.onreadystatechange = function() {
+                if (xmlHttp.readyState == 4 && xmlHttp.status == 200) {
+                    var response = JSON.parse(xmlHttp.responseText);
+                    console.log('getDataFromNode', response);
+                    callback(response);
+                }
+            }
+            xmlHttp.open("GET", url, true); // true for asynchronous
+            xmlHttp.send(null);
+
+
+            // let response = await fetch(url);
+            // if (response.ok) {
+            //     let json = await response.json();
+            //     console.log('getDataFromNode', json);
+            //     return json;
+            // } else {
+            //     alert('responce node arror');
+            // }
+        }
+
+        function getPoolVotes(name, callback) {
+            return getDataFromNode('api/v2/votes_received?username=' + name + '&aggregate=true&limit=100&offset=0', callback);
+        }
+
+        function getPoolInfo(name, callback) {
+            return getDataFromNode('api/v2/accounts?username=' + name + '&offset=0', callback);
+        }
+
+        function getPoolslist(callback) {
+            return getDataFromNode('api/v2/accounts?isDelegate=true&status=active&limit=100&offset=0&sort=rank%3Aasc', callback);
+        }
+
+        function loadPoolInfo() {
+            var poolName = document.getElementById("pool-name").value;
+            getPoolInfo(
+                poolName,
+                (data) => {
+                    console.log('getPoolInfo', data);
+
+                    showPoolBlock();
+                    var rank = data.data[0].dpos.delegate.rank;
+                    document.getElementById("info-pool-rank").textContent = rank;
+                    document.getElementById("info-pool-votes-received").textContent = data.data[0].dpos.delegate.totalVotesReceived.slice(0,-8);
+
+                    showPoolRewards(rank);
+
+                    getPoolVotes(poolName, (data) => {
+                        console.log('getPoolVotes', data);
+
+                        document.getElementById("info-pool-voters-number").textContent = data.data.account.votesReceived;
+
+                    });
+                }
+            );
+        }
+
+        function showPoolBlock() {
+            document.getElementById("pool-info").style.display="block";
+        }
+
+        function hidePoolBlock() {
+            document.getElementById("pool-info").style.display="none";
+        }
+
+        function showPoolRewards(rank) {
+            if (rank <= 101) {
+                var blocksPerDay = 3600 * 24 / 10;
+                var poolBlocksPerDay = blocksPerDay / 103;
+
+                var rewards = calcultePoolRewardPerPeriods(poolBlocksPerDay);
+                fillRewards("info-pool-mined-profit", rewards.mined);
+                fillRewards("info-pool-shared-profit", rewards.shared);
+                fillRewards("info-pool-profit-per-1000", rewards.per1000);
+            } else {
+
+            }
+        }
+
+        function calcultePoolRewardPerPeriods(poolBlocksPerDay) {
+            var rewards = {
+                mined: {},
+                shared: {},
+                per1000: {},
+            }
+            rewards.mined.inDay = poolBlocksPerDay * 1;
+            rewards.mined.inWeek = rewards.mined.inDay * 7;
+            rewards.mined.inMonth = rewards.mined.inDay * 30;
+
+            var k = document.getElementById("pool-share").value / 100;
+            rewards.shared.inDay = rewards.mined.inDay * k;
+            rewards.shared.inWeek = rewards.mined.inWeek * k;
+            rewards.shared.inMonth = rewards.mined.inMonth * k;
+
+            var k = 1000 / document.getElementById("info-pool-votes-received").textContent;
+            rewards.per1000.inDay = rewards.shared.inDay * k;
+            rewards.per1000.inWeek = rewards.shared.inWeek * k;
+            rewards.per1000.inMonth = rewards.shared.inMonth * k;
+
+            return rewards;
+        }
+
+        function fillRewards(id, rewardsObj) {
+            document.getElementById(id).textContent
+                = parseFloat(rewardsObj.inDay).toFixed(2)
+                + ' / ' + parseFloat(rewardsObj.inWeek).toFixed(2)
+                + ' / ' + parseFloat(rewardsObj.inMonth).toFixed(2) ;
+        }
+    </script>
+
+    <body style="align-content: center;">
+        <div id="settings">
+            <table>
+                <tr>
+                    <td>HTTP node: </td>
+                    <td><input id="node-url" value="https://service.lisk.com"></td>
+                </tr>
+                <tr>
+                    <td>Pool(delegate) name: </td>
+                    <td><input id="pool-name" value="t3ran13"></td>
+                </tr>
+                <tr>
+                    <td>Pool(delegate) share %: </td>
+                    <td><input id="pool-share" value="70"></td>
+                </tr>
+                <tr>
+                    <td>Your address: </td>
+                    <td><input id="voter-address" value=""></td>
+                </tr>
+            </table>
+            <div>
+                <button onclick="loadPoolInfo();">Show pool Profit</button>
+            </div>
+            <div></div>
+        </div>
+        <div id="content">
+            <div id="pool-info" style="display: none;">
+                <table>
+                    <tr>
+                        <td>Delegate rank: </td>
+                        <td><span id="info-pool-rank"></span></td>
+                    </tr>
+                    <tr>
+                        <td>Total votes received: </td>
+                        <td><span id="info-pool-votes-received"></span></td>
+                    </tr>
+                    <tr>
+                        <td>Total Lisk mined in a day/week/month: </td>
+                        <td><span id="info-pool-mined-profit"></span></td>
+                    </tr>
+                    <tr>
+                        <td>Total Lisk shared in a day/week/month: </td>
+                        <td><span id="info-pool-shared-profit"></span></td>
+                    </tr>
+                    <tr>
+                        <td>Profit per 1000 Lisk vote in a day/week/month: </td>
+                        <td><span id="info-pool-profit-per-1000"></span></td>
+                    </tr>
+                    <tr>
+                        <td>Total voters: </td>
+                        <td><span id="info-pool-voters-number"></span></td>
+                    </tr>
+                </table>
+                <div>
+                    Voters list:
+                    <div  id="info-pool-voters-list">
+
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="footer" style="margin-top: 50px;">If you like this tool you can donate lisk to lskdah9w9psepb3rfz3t2hwe8s325hxtq64c3fepo or voter for delegate t3ran13</div>
+    </body>
+</html>
