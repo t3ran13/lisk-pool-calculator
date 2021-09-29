@@ -10,16 +10,25 @@
         });
 
         var rewards = {};
+        var history = {};
 
-        function getDataFromNode(relativeUrl, callback)
+        function getDataFromNode(relativeUrl, callback, retries = 0)
         {
             var url = document.getElementById("node-url").value + '/' + relativeUrl;
             var xmlHttp = new XMLHttpRequest();
             xmlHttp.onreadystatechange = function() {
-                if (xmlHttp.readyState == 4 && xmlHttp.status == 200) {
-                    var response = JSON.parse(xmlHttp.responseText);
-                    console.log('getDataFromNode', response);
-                    callback(response);
+                if (xmlHttp.readyState == 4) {
+                    if (xmlHttp.status == 200) {
+                        var response = JSON.parse(xmlHttp.responseText);
+                        // console.log('getDataFromNode', response);
+                        callback(response);
+                    } else {
+                        if (retries > 0) {
+                            getDataFromNode(relativeUrl, callback, retries - 1);
+                        }
+                        console.log('xmlHttp.status', xmlHttp.status);
+                        console.log('xmlHttp', xmlHttp);
+                    }
                 }
             }
             xmlHttp.open("GET", url, true); // true for asynchronous
@@ -36,6 +45,25 @@
             // }
         }
 
+        function getDataFromNodeSync(relativeUrl)
+        {
+            var url = document.getElementById("node-url").value + '/' + relativeUrl;
+            var xmlHttp = new XMLHttpRequest();
+            xmlHttp.open("GET", url, false); // true for asynchronous
+            xmlHttp.send(null);
+
+
+            if (xmlHttp.status == 200) {
+                var response = JSON.parse(xmlHttp.responseText);
+                // console.log('getDataFromNodeSync', response);
+                return response;
+            } else {
+                console.error('getDataFromNodeSync error', xmlHttp.statusText, xmlHttp.responseText);
+                // alert(xmlHttp.statusText);
+                return ;
+            }
+        }
+
         function getPoolVotes(name, callback) {
             return getDataFromNode('api/v2/votes_received?username=' + name + '&aggregate=true&limit=100&offset=0', callback);
         }
@@ -48,12 +76,34 @@
             return getDataFromNode('api/v2/accounts?isDelegate=true&status=active&limit=100&offset=0&sort=rank%3Aasc', callback);
         }
 
+        function getLastBlockSync() {
+            return getDataFromNodeSync('api/v2/blocks?limit=1&offset=0&sort=height%3Adesc');
+        }
+
+        function getBlocksChunkSync(offset, limit) {
+            return getDataFromNodeSync('api/v2/blocks?limit=' + limit + '&offset=' + offset + '&sort=height%3Adesc');
+        }
+
+        function getBlocksChunk(offset, limit, callback) {
+            getDataFromNode('api/v2/blocks?limit=' + limit + '&offset=' + offset + '&sort=height%3Adesc', callback, 3);
+        }
+
+        function getDelegateVotesFromBlockSync(height) {
+            var response = getDataFromNodeSync('api/v2/transactions?moduleAssetName=dpos%3AvoteDelegate&height=' + height + '&limit=100&offset=0&includePending=false');
+
+            return response === undefined ? [] : response.data;
+        }
+
+
         function loadPoolInfo() {
+            hidePoolHistorySettingsBlock();
+            hidePoolHistoryProgressBlock();
+
             var poolName = document.getElementById("pool-name").value;
             getPoolInfo(
                 poolName,
                 (data) => {
-                    console.log('getPoolInfo', data);
+                    // console.log('getPoolInfo', data);
 
                     showPoolBlock();
                     var rank = data.data[0].dpos.delegate.rank;
@@ -63,7 +113,7 @@
                     showPoolRewards(rank);
 
                     getPoolVotes(poolName, (data) => {
-                        console.log('getPoolVotes', data);
+                        // console.log('getPoolVotes', data);
 
                         document.getElementById("info-pool-voters-number").textContent = data.data.account.votesReceived;
                         showVoters(data.data.votes);
@@ -72,12 +122,44 @@
             );
         }
 
+        function showBlock(id) {
+            document.getElementById(id).style.display="block";
+        }
+
+        function hideBlock(id) {
+            document.getElementById(id).style.display="none";
+        }
+
         function showPoolBlock() {
-            document.getElementById("pool-info").style.display="block";
+            showBlock("pool-info");
         }
 
         function hidePoolBlock() {
-            document.getElementById("pool-info").style.display="none";
+            hideBlock("pool-info");
+        }
+
+        function showPoolHistorySettingsBlock() {
+            showBlock('pool-history-settings');
+        }
+
+        function hidePoolHistorySettingsBlock() {
+            hideBlock('pool-history-settings');
+        }
+
+        function showPoolHistoryProgressBlock() {
+            showBlock('pool-history-progress');
+        }
+
+        function hidePoolHistoryProgressBlock() {
+            hideBlock('pool-history-progress');
+        }
+
+        function showPoolHistoryBlock() {
+            showBlock("pool-history");
+        }
+
+        function hidePoolHistoryBlock() {
+            hideBlock("pool-history");
         }
 
         function showPoolRewards(rank) {
@@ -115,6 +197,35 @@
             rewards.per1000.inMonth = rewards.shared.inMonth * k;
 
             return rewards;
+        }
+
+        function calcultePoolHistoryTotalReward(reward) {
+            history.reward.mined.inBlock = parseInt(reward);
+            history.reward.mined.total = history.reward.mined.total + history.reward.mined.inBlock;
+
+            var k = document.getElementById("pool-share").value / 100;
+            history.reward.shared.inBlock = parseInt(history.reward.mined.inBlock * k);
+            history.reward.shared.total = history.reward.shared.total + history.reward.shared.inBlock;
+
+            var k = 1000*100000000 / history.currentVotesReceived;
+            history.reward.per1000.inBlock = parseInt(history.reward.shared.inBlock * k);
+            history.reward.per1000.total = history.reward.per1000.total + history.reward.per1000.inBlock;
+
+            return history.reward;
+        }
+
+        function sharePoolRewardForCurrentVoters() {
+            for(var voter of Object.values(history.currentVotesList)) {
+                var reward = parseInt(history.reward.per1000.inBlock / (1000*100000000) * voter.amount);
+                if (history.reward.distribution[voter.address] === undefined) {
+                    history.reward.distribution[voter.address] = {
+                        address: voter.address,
+                        totalReward: reward
+                    };
+                } else {
+                    history.reward.distribution[voter.address].totalReward += reward;
+                }
+            }
         }
 
         function fillRewards(id, rewardsObj) {
@@ -165,8 +276,264 @@
                 document.getElementById('info-pool-voters-list').append(div);
             }
         }
-    </script>
 
+        function showVotersRewardFromHistory(voters) {
+            document.getElementById('info-pool-history-voters-list').textContent = '';
+            showPoolHistoryBlock();
+
+            var totalVotersReward = 0;
+            for(var voter of voters){
+                totalVotersReward += parseInt(voter.totalReward);
+                let divAddress = document.createElement("div");
+                let spanAddress = document.createElement("span");
+                let spanWeight = document.createElement("span");
+                spanAddress.append(voter.address);
+                spanWeight.append('  current block total weight: ' + (history.currentVotesList[voter.address].amount / 100000000));
+                divAddress.append("Address: ", spanAddress, spanWeight);
+
+                let divProfit = document.createElement("div");
+                let spanProfit = document.createElement("span");
+                spanProfit.append(parseInt(voter.totalReward / 100000) / 1000);
+                divProfit.append("Profit during period: ", spanProfit);
+
+
+                let divVotes = document.createElement("div");
+                if (history.votesHistory.hasOwnProperty(voter.address)) {
+                    let spanVotes = document.createElement("span");
+                    spanVotes.append('Votes history in period:');
+                    divVotes.append(spanVotes);
+                    for (var vote of history.votesHistory[voter.address]) {
+                        let divVote = document.createElement("div");
+                        divVote.append((' -  block: ' + vote.block + ' weight: ' + vote.amount).slice(0,-8));
+                        divVotes.append(divVote);
+                    }
+                }
+
+                let div = document.createElement("div");
+                div.style.border = "1px solid green";
+                div.style.borderRadius = "6px";
+                div.style.margin = "1px 0";
+                div.style.padding = "5px";
+                if (history.currentVotesList[voter.address].amount == 0) {
+                    div.style.backgroundColor = "#e9e9ed";
+                }
+                div.append(
+                    divAddress,
+                    divProfit,
+                    divVotes
+                );
+
+                document.getElementById('info-pool-history-voters-list').append(div);
+            }
+            let div = document.createElement("div");
+            div.append("Total voters reward: ", (parseInt(totalVotersReward / 100000) / 1000 ));
+            document.getElementById('info-pool-history-voters-list').append(div);
+        }
+
+        function ScanPoolProfitInHistory() {
+            document.getElementById('history-stop-scanning').value = 0;
+            hidePoolBlock();
+            hidePoolHistoryBlock();
+            showPoolHistorySettingsBlock();
+            showPoolHistoryProgressBlock();
+
+            history = {};
+            history.poolAddress = '';
+            history.reward = {
+                    mined: {
+                        inBlock: 0,
+                        total: 0
+                    },
+                    shared: {
+                        inBlock: 0,
+                        total: 0
+                    },
+                    per1000: {
+                        inBlock: 0,
+                        total: 0
+                    },
+                    distribution: {}
+            };
+            history.votesHistory = {};
+            history.currentVotesList = {};
+            history.currentVotesReceived = 0;
+            history.signedBlocks = 0;
+            history.fromBlock = parseInt(document.getElementById("history-from-block").value);
+            history.toBlock = parseInt(document.getElementById("history-to-block").value);
+            history.currentBlock = 0;
+
+            // console.log('ScanPoolProfitInHistory', history);
+            var poolName = document.getElementById("pool-name").value;
+            getPoolInfo(
+                poolName,
+                (data) => {
+                    // console.log('getPoolInfo', data);
+                    // console.log('getPoolInfo', history);
+
+                    // showPoolBlock();
+                    var rank = data.data[0].dpos.delegate.rank;
+                    history.poolAddress = data.data[0].summary.address;
+                    document.getElementById("info-pool-rank").textContent = rank;
+                    document.getElementById("info-pool-votes-received").textContent = data.data[0].dpos.delegate.totalVotesReceived.slice(0,-8);
+
+                    // showPoolRewards(rank);
+
+                    getPoolVotes(poolName, (data) => {
+                        // console.log('getPoolVotes', data);
+
+                        for (var number in data.data.votes) {
+                            data.data.votes[number].amount = - parseInt(data.data.votes[number].amount);
+                        }
+                        updateCurrentVotersList(data.data.votes);
+
+                        var data = getLastBlockSync();
+                        // console.log('getLastBlockSync', data);
+                        var blockHead = data.data[0];
+                        if (history.toBlock === 0) {
+                            history.toBlock = parseInt(blockHead.height);
+                            document.getElementById("history-to-block").value = history.toBlock;
+                            history.fromBlock = history.toBlock - 120960; //last 2 weeks
+                            document.getElementById("history-from-block").value = history.fromBlock;
+                        }
+
+                        handleHistoryByChunk();
+                    });
+                }
+            );
+        }
+
+        function updateCurrentVotersList(voters) {
+            // console.log('updateCurrentVotersList', history);
+            for(var voter of voters) {
+                console.log(voter.address + ' vote ', voter.amount);
+                if (!history.currentVotesList.hasOwnProperty(voter.address)) {
+                    voter.amount = -parseInt(voter.amount);
+                    history.currentVotesList[voter.address] = voter;
+                } else {
+                    history.currentVotesList[voter.address].amount -= parseInt(voter.amount);
+                }
+                console.log(voter.address + ' total after block ' + history.currentBlock, history.currentVotesList[voter.address].amount);
+            }
+
+            history.currentVotesReceived = 0;
+            for(var voter of Object.values(history.currentVotesList)) {
+                history.currentVotesReceived += parseInt(voter.amount);
+            }
+        }
+
+        function saveVotesToHistory(voters) {
+            for(var voter of voters) {
+                if (!history.votesHistory.hasOwnProperty(voter.address)) {
+                    history.votesHistory[voter.address] = [];
+                }
+                history.votesHistory[voter.address].push(
+                    {
+                        block: parseInt(history.currentBlock),
+                        amount: parseInt(voter.amount)
+                    }
+                );
+            }
+        }
+
+        function handleBlock(blockHead, trxs) {
+            history.currentBlock = blockHead.height;
+
+            var filteredVoters = [];
+            for(var trx of trxs) {
+                for(var vote of trx.asset.votes) {
+                    if (history.poolAddress === vote.delegateAddress) {
+                        vote.address = trx.sender.address;
+                        filteredVoters.push(vote);
+                    }
+                }
+            }
+            if (filteredVoters.length > 0) {
+                saveVotesToHistory(filteredVoters);
+                updateCurrentVotersList(filteredVoters);
+
+                showVotersRewardFromHistory(Object.values(history.reward.distribution));
+            }
+
+            if (
+                blockHead.generatorUsername === document.getElementById("pool-name").value
+                && history.currentBlock >= history.fromBlock
+                && history.currentBlock <= history.toBlock
+            ) {
+                calcultePoolHistoryTotalReward(blockHead.reward);
+                sharePoolRewardForCurrentVoters();
+
+                displayRewardHistory();
+                showVotersRewardFromHistory(Object.values(history.reward.distribution));
+            }
+
+            displayProgress();
+        }
+
+        function handleHistoryByChunk(offset = 0, limit = 100) {
+            // data = getBlocksChunkSync(offset, limit);
+            // console.log('getBlocksChunkSync', data);
+            // for(var blockHead of data.data) {
+            //     //handle only early blocks
+            //     if (history.currentBlock === 0
+            //         || blockHead.height < history.currentBlock
+            //     ) {
+            //         var trxs = [];
+            //         if (blockHead.numberOfTransactions > 0) {
+            //             var trxs = getDelegateVotesFromBlockSync(blockHead.height);
+            //             console.log('getDelegateVotesFromBlockSync', trxs);
+            //         }
+            //         handleBlock(blockHead, trxs);
+            //     }
+            //     // else it was handled before
+            // }
+            // console.log('history', history);
+            // if (
+            //     history.currentBlock > history.fromBlock
+            // ) {
+            //     // handleHistoryByChunk(offset + limit, limit);
+            // }
+            getBlocksChunk(offset, limit, (data) => {
+                // console.log('getBlocksChunkSync', data);
+                for(var blockHead of data.data) {
+                    //handle only early blocks
+                    if (history.currentBlock === 0
+                        || blockHead.height < history.currentBlock
+                    ) {
+                        var trxs = [];
+                        if (blockHead.numberOfTransactions > 0) {
+                            var trxs = getDelegateVotesFromBlockSync(blockHead.height);
+                            // console.log('getDelegateVotesFromBlockSync', trxs);
+                        }
+                        handleBlock(blockHead, trxs);
+                    }
+                    // else it was handled before
+                }
+                // console.log('history', history);
+                if (
+                    history.currentBlock > history.fromBlock
+                    && document.getElementById('history-stop-scanning').value === '0'
+                ) {
+                    handleHistoryByChunk(offset + limit, limit);
+                }
+            });
+        }
+
+        function displayProgress() {
+            var totalBlocks = history.toBlock - history.fromBlock;
+            var scannedBlocks = history.currentBlock > history.toBlock ? 0 : history.toBlock - history.currentBlock;
+            document.getElementById('pool-history-progress-percent').textContent = Math.round(scannedBlocks / totalBlocks * 100 * 100) / 100;
+            document.getElementById('pool-history-progress-block').textContent = history.currentBlock;
+        }
+
+        function displayRewardHistory() {
+            showPoolHistoryBlock();
+            document.getElementById('info-pool-history-mined-profit').textContent = parseInt(history.reward.mined.total / 100000) / 1000;
+            document.getElementById('info-pool-history-shared-profit').textContent = parseInt(history.reward.shared.total / 100000) / 1000;
+            document.getElementById('info-pool-history-profit-per-1000').textContent = parseInt(history.reward.per1000.total / 100000) / 1000;
+            document.getElementById('info-pool-history-voters-number').textContent = Object.keys(history.reward.distribution).length;
+        }
+
+    </script>
     <body style="align-content: center;">
         <div id="settings">
             <table>
@@ -182,13 +549,26 @@
                     <td>Pool(delegate) share %: </td>
                     <td><input id="pool-share" value="70"></td>
                 </tr>
-                <tr>
-                    <td>Your address: </td>
-                    <td><input id="voter-address" value=""></td>
-                </tr>
+<!--                <tr>-->
+<!--                    <td>Your address: </td>-->
+<!--                    <td><input id="voter-address" value=""></td>-->
+<!--                </tr>-->
             </table>
             <div>
                 <button onclick="loadPoolInfo();">Show pool Profit</button>
+                <button onclick="ScanPoolProfitInHistory();">Scan pool Profit in history</button>
+            </div>
+            <div id="pool-history-settings" style="display: none;">
+                Scanning period from block:
+                <input id="history-from-block" value="0">
+                to block:
+                <input id="history-to-block" value="0">
+                <input type="hidden" id="history-stop-scanning" value="0">
+                <button onclick="document.getElementById('history-stop-scanning').value = 1;" style="background: lightcoral;">Stop scanning</button>
+            </div>
+            <div id="pool-history-progress" style="display: none;">
+                current block: <span id="pool-history-progress-block"></span>,
+                progress is <span id="pool-history-progress-percent"></span> %
             </div>
             <div></div>
         </div>
@@ -223,6 +603,32 @@
                 <div>
                     Voters list:
                     <div  id="info-pool-voters-list">
+
+                    </div>
+                </div>
+            </div>
+            <div id="pool-history" style="display: none;">
+                <table>
+                    <tr>
+                        <td>Total Lisk was mined: </td>
+                        <td><span id="info-pool-history-mined-profit"></span></td>
+                    </tr>
+                    <tr>
+                        <td>Total Lisk have to be shared: </td>
+                        <td><span id="info-pool-history-shared-profit"></span></td>
+                    </tr>
+                    <tr>
+                        <td><b>Approximately</b> profit per 1000 Lisk vote during period: </td>
+                        <td><span id="info-pool-history-profit-per-1000"></span></td>
+                    </tr>
+                    <tr>
+                        <td>Total voters: </td>
+                        <td><span id="info-pool-history-voters-number"></span></td>
+                    </tr>
+                </table>
+                <div>
+                    Voters list:
+                    <div  id="info-pool-history-voters-list">
 
                     </div>
                 </div>
