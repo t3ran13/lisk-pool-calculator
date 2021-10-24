@@ -94,6 +94,18 @@
             return response === undefined ? [] : response.data;
         }
 
+        function getDelegateBlocksChunkSync(poolName, offset, limit) {
+            var response = getDataFromNodeSync('api/v2/blocks?generatorUsername=' + poolName + '&limit=' + limit + '&offset=' + offset + '&sort=timestamp%3Adesc');
+
+            return response === undefined ? [] : response.data;
+        }
+
+        function getDelegatesVotesChunkSync(offset, limit) {
+            var response = getDataFromNodeSync('api/v2/transactions?moduleAssetName=dpos%3AvoteDelegate&limit=' + limit + '&offset=' + offset + '&includePending=false&sort=timestamp%3Adesc');
+
+            return response === undefined ? [] : response.data;
+        }
+
 
         function loadPoolInfo() {
             hidePoolHistorySettingsBlock();
@@ -309,7 +321,7 @@
                     }
                 }
 
-                let div = document.createElement("div");
+                let div = document.createElement("p");
                 div.style.border = "1px solid green";
                 div.style.borderRadius = "6px";
                 div.style.margin = "1px 0";
@@ -325,7 +337,7 @@
 
                 document.getElementById('info-pool-history-voters-list').append(div);
             }
-            let div = document.createElement("div");
+            let div = document.createElement("p");
             div.append("Total voters reward: ", (parseInt(totalVotersReward / 100000) / 1000 ));
             document.getElementById('info-pool-history-voters-list').append(div);
         }
@@ -402,6 +414,92 @@
             );
         }
 
+        function ScanPoolProfitInHistoryV2() {
+            document.getElementById('history-stop-scanning').value = 0;
+            hidePoolBlock();
+            hidePoolHistoryBlock();
+            showPoolHistorySettingsBlock();
+            showPoolHistoryProgressBlock();
+
+            history = {};
+            history.poolAddress = '';
+            history.reward = {
+                    mined: {
+                        inBlock: 0,
+                        total: 0
+                    },
+                    shared: {
+                        inBlock: 0,
+                        total: 0
+                    },
+                    per1000: {
+                        inBlock: 0,
+                        total: 0
+                    },
+                    distribution: {}
+            };
+            history.votesHistory = {};
+            history.currentVotesList = {};
+            history.currentVotesReceived = 0;
+            history.signedBlocks = 0;
+            history.fromBlock = parseInt(document.getElementById("history-from-block").value);
+            history.toBlock = parseInt(document.getElementById("history-to-block").value);
+            history.currentBlock = 0;
+            history.request = {
+                votes: {
+                    limit: 100,
+                    offset: 0,
+                    offsetHeight: 0,
+                    list:{}
+                },
+                signedBlocks: {
+                    limit: 100,
+                    offset: 0,
+                    offsetHeight: 0,
+                    list:{}
+                }
+            };
+
+            // console.log('ScanPoolProfitInHistory', history);
+            var poolName = document.getElementById("pool-name").value;
+            getPoolInfo(
+                poolName,
+                (data) => {
+                    // console.log('getPoolInfo', data);
+                    // console.log('getPoolInfo', history);
+
+                    // showPoolBlock();
+                    var rank = data.data[0].dpos.delegate.rank;
+                    history.poolAddress = data.data[0].summary.address;
+                    document.getElementById("info-pool-rank").textContent = rank;
+                    document.getElementById("info-pool-votes-received").textContent = data.data[0].dpos.delegate.totalVotesReceived.slice(0,-8);
+
+                    // showPoolRewards(rank);
+
+                    getPoolVotes(poolName, (data) => {
+                        // console.log('getPoolVotes', data);
+
+                        for (var number in data.data.votes) {
+                            data.data.votes[number].amount = - parseInt(data.data.votes[number].amount);
+                        }
+                        updateCurrentVotersList(data.data.votes);
+
+                        var data = getLastBlockSync();
+                        // console.log('getLastBlockSync', data);
+                        var blockHead = data.data[0];
+                        if (history.toBlock === 0) {
+                            history.toBlock = parseInt(blockHead.height);
+                            document.getElementById("history-to-block").value = history.toBlock;
+                            history.fromBlock = history.toBlock - 120960; //last 2 weeks
+                            document.getElementById("history-from-block").value = history.fromBlock;
+                        }
+
+                        handleHistoryByBlockV2(blockHead.height);
+                    });
+                }
+            );
+        }
+
         function updateCurrentVotersList(voters) {
             // console.log('updateCurrentVotersList', history);
             for(var voter of voters) {
@@ -470,28 +568,6 @@
         }
 
         function handleHistoryByChunk(offset = 0, limit = 100) {
-            // data = getBlocksChunkSync(offset, limit);
-            // console.log('getBlocksChunkSync', data);
-            // for(var blockHead of data.data) {
-            //     //handle only early blocks
-            //     if (history.currentBlock === 0
-            //         || blockHead.height < history.currentBlock
-            //     ) {
-            //         var trxs = [];
-            //         if (blockHead.numberOfTransactions > 0) {
-            //             var trxs = getDelegateVotesFromBlockSync(blockHead.height);
-            //             console.log('getDelegateVotesFromBlockSync', trxs);
-            //         }
-            //         handleBlock(blockHead, trxs);
-            //     }
-            //     // else it was handled before
-            // }
-            // console.log('history', history);
-            // if (
-            //     history.currentBlock > history.fromBlock
-            // ) {
-            //     // handleHistoryByChunk(offset + limit, limit);
-            // }
             getBlocksChunk(offset, limit, (data) => {
                 // console.log('getBlocksChunkSync', data);
                 for(var blockHead of data.data) {
@@ -516,6 +592,117 @@
                     handleHistoryByChunk(offset + limit, limit);
                 }
             });
+        }
+
+        async function handleHistoryByBlockV2(height, limit = 500) {
+            setTimeout(
+                () => {
+                    for (var i = height; i > height - limit; i--) {
+                        history.currentBlock = i;
+                        console.log(history.currentBlock);
+
+                        var voters = getVotesByBlockFromHistory(history.currentBlock);
+                        if (voters.length > 0) {
+                            saveVotesToHistory(voters);
+                            updateCurrentVotersList(voters);
+
+                            showVotersRewardFromHistory(Object.values(history.reward.distribution));
+                        }
+
+                        var blockHead = getSignedBlockHeadByHeight(history.currentBlock);
+                        if (
+                            blockHead !== undefined
+                            && history.currentBlock >= history.fromBlock
+                            && history.currentBlock <= history.toBlock
+                        ) {
+                            calcultePoolHistoryTotalReward(blockHead.reward);
+                            sharePoolRewardForCurrentVoters();
+
+                            displayRewardHistory();
+                            showVotersRewardFromHistory(Object.values(history.reward.distribution));
+                        }
+                    }
+
+                    displayProgress();
+
+                    if (
+                        history.currentBlock > history.fromBlock
+                        && document.getElementById('history-stop-scanning').value === '0'
+                    ) {
+                        handleHistoryByBlockV2(height - limit, limit);
+                    }
+                },
+                1
+            );
+        }
+
+        /**
+         * get votes for delegate from history by block
+         *
+         * @param height
+         * @returns {*[]}
+         */
+        function getVotesByBlockFromHistory(height) {
+            //collect data if empty
+            if (
+                history.request.votes.offsetHeight == 0
+                || history.request.votes.offsetHeight >= height
+            ) {
+                var trxs = getDelegatesVotesChunkSync(
+                    history.request.votes.offset,
+                    history.request.votes.limit
+                );
+                history.request.votes.offset += history.request.votes.limit;
+                for(var trx of trxs) {
+                    for(var vote of trx.asset.votes) {
+                        if (history.poolAddress === vote.delegateAddress) {
+                            vote.address = trx.sender.address;
+                            if (history.request.votes.list[trx.height] === undefined) {
+                                history.request.votes.list[trx.height] = {};
+                            }
+                            history.request.votes.list[trx.height][trx.id] = vote;
+                        }
+                    }
+                    //upd last scanned height
+                    history.request.votes.offsetHeight = trx.height;
+                }
+            }
+
+            var list = [];
+            if (history.request.votes.list[height] !== undefined) {
+                list = Object.values(history.request.votes.list[height]);
+            }
+
+            return list;
+        }
+
+        function getSignedBlockHeadByHeight(height) {
+            //collect data if empty
+            if (
+                history.request.signedBlocks.offsetHeight == 0
+                || history.request.signedBlocks.offsetHeight >= height
+            ) {
+                var blocks = getDelegateBlocksChunkSync(
+                    document.getElementById("pool-name").value,
+                    history.request.signedBlocks.offset,
+                    history.request.signedBlocks.limit
+                );
+                history.request.signedBlocks.offset += history.request.signedBlocks.limit;
+                for(var blockHead of blocks) {
+                    if (blockHead.generatorUsername === document.getElementById("pool-name").value) {
+                        history.request.signedBlocks.list[blockHead.height] = blockHead;
+                    }
+                    //upd last scanned height
+                    history.request.signedBlocks.offsetHeight = blockHead.height;
+                }
+            }
+
+            // var blockHead = {};
+            // if (history.request.signedBlocks.list[trx.height] !== undefined) {
+            //     blockHead = history.request.signedBlocks.list[trx.height];
+            // }
+
+            return history.request.signedBlocks.list[height];
         }
 
         function displayProgress() {
@@ -556,6 +743,7 @@
             </table>
             <div>
                 <button onclick="loadPoolInfo();">Show pool Profit</button>
+                <button onclick="ScanPoolProfitInHistoryV2();">Scan pool Profit in history V2 (Fast)</button>
                 <button onclick="ScanPoolProfitInHistory();">Scan pool Profit in history</button>
             </div>
             <div id="pool-history-settings" style="display: none;">
