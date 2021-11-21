@@ -599,7 +599,7 @@
                 () => {
                     for (var i = height; i > height - limit; i--) {
                         history.currentBlock = i;
-                        console.log(history.currentBlock);
+                        // console.log(history.currentBlock);
 
                         var voters = getVotesByBlockFromHistory(history.currentBlock);
                         if (voters.length > 0) {
@@ -734,7 +734,7 @@
                 </tr>
                 <tr>
                     <td>Pool(delegate) share %: </td>
-                    <td><input id="pool-share" value="70"></td>
+                    <td><input id="pool-share" value="65"></td>
                 </tr>
 <!--                <tr>-->
 <!--                    <td>Your address: </td>-->
