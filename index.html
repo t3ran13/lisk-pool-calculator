@@ -9,6 +9,7 @@
             loadPoolInfo();
         });
 
+        var YOU_GONNA_VOTE = 'You gonna vote';
         var rewards = {};
         var history = {};
 
@@ -108,6 +109,9 @@
 
 
         function loadPoolInfo() {
+            stopHistoryScanning();
+
+            hidePoolHistoryBlock();
             hidePoolHistorySettingsBlock();
             hidePoolHistoryProgressBlock();
 
@@ -118,20 +122,30 @@
                     // console.log('getPoolInfo', data);
 
                     showPoolBlock();
+                    var possibleVote = parseInt(document.getElementById("info-pool-possible-vote").value);
                     var rank = data.data[0].dpos.delegate.rank;
                     document.getElementById("info-pool-rank").textContent = rank;
-                    document.getElementById("info-pool-votes-received").textContent = data.data[0].dpos.delegate.totalVotesReceived.slice(0,-8);
+                    document.getElementById("info-pool-votes-received").textContent = parseInt(data.data[0].dpos.delegate.totalVotesReceived.slice(0,-8)) + possibleVote;
 
                     showPoolRewards(rank);
 
                     getPoolVotes(poolName, (data) => {
                         // console.log('getPoolVotes', data);
-
+                        var votes = data.data.votes;
                         document.getElementById("info-pool-voters-number").textContent = data.data.account.votesReceived;
-                        showVoters(data.data.votes);
+                        if (data.data && data.data.votes && possibleVote > 0) {
+                            // console.log('data.data.votes', data.data.votes);
+                            votes.unshift({address: YOU_GONNA_VOTE, amount: possibleVote + '00000000'});
+                            document.getElementById("info-pool-voters-number").textContent += ' (+1 from you)';
+                        }
+                        showVoters(votes);
                     });
                 }
             );
+        }
+
+        function stopHistoryScanning() {
+            document.getElementById('history-stop-scanning').value = 1;
         }
 
         function showBlock(id) {
@@ -279,6 +293,9 @@
                 div.style.borderRadius = "6px";
                 div.style.margin = "1px 0";
                 div.style.padding = "5px";
+                if (voter.address === YOU_GONNA_VOTE) {
+                    div.style.backgroundColor = "lightblue";
+                }
                 div.append(
                     divAddress,
                     divAmount,
@@ -722,11 +739,22 @@
 
     </script>
     <body style="align-content: center;">
+    <div id="footer" style="width: 100%; text-align: center; color: darkcyan;">If you like this tool you can donate lisk to lskdah9w9psepb3rfz3t2hwe8s325hxtq64c3fepo or voter for delegate t3ran13</div>
+    <br>
+    <br>
         <div id="settings">
             <table>
                 <tr>
                     <td>HTTP node: </td>
-                    <td><input id="node-url" value="https://mainnet-service.lisktools.eu"></td>
+                    <td><input size="35" id="node-url" value="https://mainnet-service.lisktools.eu"></td>
+                    <td>
+                        <select name="select" onchange="document.getElementById('node-url').value = this.value;">
+                            <option value="https://mainnet-service.lisktools.eu" selected>mainnet-service.lisktools.eu</option>
+                            <option value="https://lisk-mainnet-service.punkrock.me">lisk-mainnet-service.punkrock.me</option>
+                            <option value="https://mainnet-service.liskcommulab.jp">mainnet-service.liskcommulab.jp</option>
+                            <option value="https://service.lisk.com">service.lisk.com</option>
+                        </select>
+                    </td>
                 </tr>
                 <tr>
                     <td>Pool(delegate) name: </td>
@@ -752,7 +780,7 @@
                 to block:
                 <input id="history-to-block" value="0">
                 <input type="hidden" id="history-stop-scanning" value="0">
-                <button onclick="document.getElementById('history-stop-scanning').value = 1;" style="background: lightcoral;">Stop scanning</button>
+                <button onclick="stopHistoryScanning();" style="background: lightcoral;">Stop scanning</button>
             </div>
             <div id="pool-history-progress" style="display: none;">
                 current block: <span id="pool-history-progress-block"></span>,
@@ -763,6 +791,10 @@
         <div id="content">
             <div id="pool-info" style="display: none;">
                 <table>
+                    <tr>
+                        <td style="color: darkslateblue;">You gonna vote: </td>
+                        <td><input type="number" value="1000" id="info-pool-possible-vote"> lsk</td>
+                    </tr>
                     <tr>
                         <td>Delegate rank: </td>
                         <td><span id="info-pool-rank"></span></td>
@@ -822,6 +854,6 @@
                 </div>
             </div>
         </div>
-        <div id="footer" style="margin-top: 50px;">If you like this tool you can donate lisk to lskdah9w9psepb3rfz3t2hwe8s325hxtq64c3fepo or voter for delegate t3ran13</div>
+
     </body>
 </html>
